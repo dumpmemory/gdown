@@ -16,7 +16,8 @@ without cookies and downloaded with a signed-in browser's Google cookies.
 gdown could already use cookies, but only from a Netscape file the user
 exported with a browser extension and moved into the cache directory. The
 convention set by yt-dlp and copied by gallery-dl is `--cookies FILE` plus
-`--cookies-from-browser BROWSER`, and `uvx gdown` must work with no extra.
+`--cookies-from-browser BROWSER`, and Firefox extraction through `uvx gdown`
+must work with no extra.
 
 Reading a browser's cookie store means SQLite, per-platform key retrieval,
 and AES decryption. Browser extraction is the one CLI-only feature in gdown,
@@ -30,11 +31,12 @@ is hard to justify. The options:
 - Depend on yt-dlp. Rejected: a 3 MB dependency for one function.
 - Copy the code from gallery-dl. Rejected: GPL-2.
 - Vendor from yt-dlp. Its `cookies.py` and pure-Python `aes.py` are
-  released under the Unlicense (public domain), need only the standard
-  library plus system tools (`security` on macOS, `dbus-send` and `kwallet`
-  on Linux, DPAPI via ctypes on Windows), and are actively maintained.
-- Ship it as an optional extra. Rejected: extras only add dependencies, so a
-  slim `gdown[core]` cannot be expressed, and `uvx gdown` would not have it.
+  released under the Unlicense (public domain) and are actively maintained.
+  They use system tools (`security` on macOS, `dbus-send` and `kwallet`
+  on Linux, DPAPI via ctypes on Windows); GNOME Keyring additionally requires
+  the optional `secretstorage` Python package.
+- Put a third-party browser extraction library behind an optional extra.
+  Rejected: `uvx gdown` would then require an extra even for Firefox.
 
 No option reads Chrome 127+ cookies on Windows without admin rights, because
 of Google's App-Bound Encryption. Firefox works everywhere.
@@ -57,6 +59,11 @@ before the download, so the library keeps a single cookie source and later
 runs need no flag. Both flags follow the yt-dlp names. Session cookies are
 kept when saving and loading the file, because Google's sign-in state partly
 lives in them.
+
+Expose GNOME Keyring's Python dependency through `gdown[secretstorage]`,
+following yt-dlp's optional-extra convention. This keeps Firefox extraction
+available without an extra while giving GNOME users an explicit installation
+route.
 
 ## Consequences
 
