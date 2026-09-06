@@ -21,6 +21,9 @@ from .parse_url import _parse_google_drive_folder_id
 
 class _GoogleDriveFile:
     TYPE_FOLDER: Final = "application/vnd.google-apps.folder"
+    TYPE_DOCUMENT: Final = "application/vnd.google-apps.document"
+    TYPE_SPREADSHEET: Final = "application/vnd.google-apps.spreadsheet"
+    TYPE_PRESENTATION: Final = "application/vnd.google-apps.presentation"
 
     def __init__(
         self,
@@ -38,10 +41,17 @@ class _GoogleDriveFile:
     def is_folder(self) -> bool:
         return self.type == self.TYPE_FOLDER
 
+    def is_google_native(self) -> bool:
+        # Any docs.google.com kind (Forms, Drawings, ...) exports too, so the
+        # export name must come from the response, not the folder view.
+        return self.type.startswith("application/vnd.google-apps.") and not (
+            self.is_folder()
+        )
+
 
 def _get_directory_structure(
     *, gdrive_file: _GoogleDriveFile, previous_path: str
-) -> list[tuple[str | None, str]]:
+) -> list[tuple[_GoogleDriveFile | None, str]]:
     directory_structure = []
     for file in gdrive_file.children:
         file.name = _sanitize_filename(filename=file.name)
@@ -53,7 +63,7 @@ def _get_directory_structure(
             ):
                 directory_structure.append(i)
         elif not file.children:
-            directory_structure.append((file.id, osp.join(previous_path, file.name)))
+            directory_structure.append((file, osp.join(previous_path, file.name)))
     return directory_structure
 
 
@@ -181,45 +191,62 @@ def download_folder(
 
     files = []
     failed_paths: list[str] = []
-    for id, path in directory_structure:
+    for gdrive_file, path in directory_structure:
         local_path = osp.join(root_dir, path)
 
-        if id is None:  # folder
+        if gdrive_file is None:  # folder
             if not skip_download and not osp.exists(local_path):
                 os.makedirs(local_path)
             continue
 
-        if skip_download:
+        if skip_download and not gdrive_file.is_google_native():
             files.append(
-                GoogleDriveFileToDownload(id=id, path=path, local_path=local_path)
+                GoogleDriveFileToDownload(
+                    id=gdrive_file.id, path=path, local_path=local_path
+                )
+            )
+            continue
+
+        download_output = local_path
+        if gdrive_file.is_google_native():
+            # The folder view omits the selected export extension.
+            download_output = (
+                None if skip_download else osp.dirname(local_path) + osp.sep
+            )
+        try:
+            downloaded_file = download(
+                url="https://drive.google.com/uc?id=" + gdrive_file.id,
+                output=download_output,
+                quiet=quiet,
+                proxy=proxy,
+                speed=speed,
+                use_cookies=use_cookies,
+                verify=verify,
+                resume=resume,
+                cookies_file=cookies_file,
+                user_agent=user_agent,
+                skip_download=skip_download,
+            )
+        except DownloadError as e:
+            if skip_download:
+                raise
+            failed_paths.append(local_path)
+            if not quiet:
+                print(f"Failed to download {local_path}: {e}", file=sys.stderr)
+            continue
+
+        if skip_download:
+            assert isinstance(downloaded_file, GoogleDriveFileToDownload)
+            path = osp.join(osp.dirname(path), downloaded_file.path)
+            files.append(
+                GoogleDriveFileToDownload(
+                    id=gdrive_file.id,
+                    path=path,
+                    local_path=osp.join(root_dir, path),
+                )
             )
         else:
-            # Google-native files (Docs, Sheets, Slides) have no extension
-            # in the folder listing. Pass the directory so download() resolves
-            # the correct filename from the Content-Disposition header.
-            if osp.splitext(local_path)[1]:
-                download_output = local_path
-            else:
-                download_output = osp.dirname(local_path) + osp.sep
-            try:
-                downloaded_path = download(
-                    url="https://drive.google.com/uc?id=" + id,
-                    output=download_output,
-                    quiet=quiet,
-                    proxy=proxy,
-                    speed=speed,
-                    use_cookies=use_cookies,
-                    verify=verify,
-                    resume=resume,
-                    cookies_file=cookies_file,
-                    user_agent=user_agent,
-                )
-            except DownloadError as e:
-                failed_paths.append(local_path)
-                if not quiet:
-                    print(f"Failed to download {local_path}: {e}", file=sys.stderr)
-                continue
-            files.append(downloaded_path)
+            files.append(downloaded_file)
     if failed_paths:
         raise DownloadError(
             "Failed to download the following files:\n"
@@ -280,15 +307,17 @@ def _parse_embedded_folder_view(
             children.append((file_id, file_name, "application/octet-stream"))
             continue
 
-        # Google-native files (Docs, Sheets, Slides) use docs.google.com
+        # The link host, not the visible name, tells Google-native files apart.
         docs_match = re.match(
-            pattern=r"https://docs\.google\.com/\w+/d/([-\w]{25,})/",
+            pattern=r"https://docs\.google\.com/(\w+)/d/([-\w]{25,})/",
             string=href,
         )
         if docs_match:
-            file_id = docs_match.group(1)
+            kind, file_id = docs_match.groups()
             file_name = a_tag.get_text(strip=True)
-            children.append((file_id, file_name, "application/octet-stream"))
+            # Drive's MIME types are singular ("spreadsheet"); the URL is not.
+            file_type = "application/vnd.google-apps." + kind.removesuffix("s")
+            children.append((file_id, file_name, file_type))
             continue
 
         child_folder_id = _parse_google_drive_folder_id(url=href)

@@ -22,6 +22,7 @@ from gdown.download_folder import _GoogleDriveFile
 
 from .conftest import GITHUB_RELEASE_URL
 from .conftest import build_google_cookie
+from .conftest import build_response
 
 here = os.path.dirname(os.path.abspath(__file__))
 
@@ -202,6 +203,11 @@ def test_json_flag_outputs_json_array(
         type=_GoogleDriveFile.TYPE_FOLDER,
         children=[
             _GoogleDriveFile(
+                id="native_id",
+                name="report.v2",
+                type=_GoogleDriveFile.TYPE_PRESENTATION,
+            ),
+            _GoogleDriveFile(
                 id="child_id",
                 name="track.mp3",
                 type="application/octet-stream",
@@ -213,10 +219,19 @@ def test_json_flag_outputs_json_array(
         "argv",
         ["gdown", "--no-cookies", *folder_args, "--json"],
     )
-    with unittest.mock.patch.object(
-        sys.modules["gdown.download_folder"],
-        "_download_and_parse_google_drive_link",
-        return_value=root,
+    response = build_response(
+        headers={"Content-Disposition": 'attachment; filename="report.v2.pptx"'},
+        chunks=[],
+    )
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch(
+            "requests.sessions.Session.get", return_value=response
+        ) as get,
     ):
         main()
 
@@ -225,10 +240,60 @@ def test_json_flag_outputs_json_array(
     entries = json.loads(captured.out)
     assert entries == [
         {
+            "url": "https://drive.google.com/uc?id=native_id",
+            "path": "report.v2.pptx",
+        },
+        {
             "url": "https://drive.google.com/uc?id=child_id",
             "path": "track.mp3",
-        }
+        },
     ]
+    get.assert_called_once()
+
+
+def test_json_flag_native_probe_failure_prints_no_listing(
+    *, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _GoogleDriveFile(
+        id="root_id",
+        name="myfolder",
+        type=_GoogleDriveFile.TYPE_FOLDER,
+        children=[
+            _GoogleDriveFile(
+                id="native_id",
+                name="report.v2",
+                type=_GoogleDriveFile.TYPE_PRESENTATION,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gdown",
+            "--no-cookies",
+            "https://drive.google.com/drive/folders/dummy",
+            "--json",
+        ],
+    )
+    response = build_response(
+        headers={"Content-Disposition": "attachment; filename="}, chunks=[]
+    )
+
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch("requests.sessions.Session.get", return_value=response),
+        pytest.raises(SystemExit),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Could not determine the Google Drive filename" in captured.err
 
 
 @pytest.mark.parametrize(

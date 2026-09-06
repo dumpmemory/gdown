@@ -218,13 +218,30 @@ def test_parse_embedded_folder_view() -> None:
         "108RHF3bQb6dgOByv_KMGzHuktJOwU_jL",
         "1Sul7bhaimPjncS2GE73nVloSPQbtyzu-",
         "1xYz2AbCdEfGhIjKlMnOpQrStUvWxYz3A",
+        "1DocAbCdEfGhIjKlMnOpQrStUvWxYz3A",
+        "1SheetCdEfGhIjKlMnOpQrStUvWxYz3A",
+        "1SlidesdEfGhIjKlMnOpQrStUvWxYz3A",
+        "1FormAbCdEfGhIjKlMnOpQrStUvWxYz3A",
         "1aMZqPaU03E7XOQNXtjSCdguRHBaIQ82m",
     ]
-    assert names == ["file_00.txt", "file_01.txt", "photo.jpg", "subfolder"]
+    assert names == [
+        "file_00.txt",
+        "file_01.txt",
+        "photo.jpg",
+        "report.v2",
+        "budget",
+        "slides",
+        "survey",
+        "subfolder",
+    ]
     assert types == [
         "application/octet-stream",
         "application/octet-stream",
         "application/octet-stream",
+        _GoogleDriveFile.TYPE_DOCUMENT,
+        _GoogleDriveFile.TYPE_SPREADSHEET,
+        _GoogleDriveFile.TYPE_PRESENTATION,
+        "application/vnd.google-apps.form",
         _GoogleDriveFile.TYPE_FOLDER,
     ]
 
@@ -252,6 +269,208 @@ def test_parse_embedded_folder_view_malformed_html() -> None:
 
     with pytest.raises(DownloadError, match="page structure may have changed"):
         _parse_embedded_folder_view(sess=mock_sess, folder_id="test", verify=True)
+
+
+@pytest.mark.parametrize(
+    ("drive_name", "export_name", "child_type"),
+    [
+        ("report.v2", "report.v2.pptx", _GoogleDriveFile.TYPE_PRESENTATION),
+        ("notes", "notes.docx", _GoogleDriveFile.TYPE_DOCUMENT),
+    ],
+)
+def test_download_folder_uses_google_native_export_filename(
+    *, tmp_path: Path, drive_name: str, export_name: str, child_type: str
+) -> None:
+    root = _make_folder_root(name="folder", child_names=[drive_name])
+    root.children[0].type = child_type
+    response = build_response(
+        headers={"Content-Disposition": f'attachment; filename="{export_name}"'},
+        chunks=[b"export"],
+    )
+
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch("requests.sessions.Session.get", return_value=response),
+    ):
+        files = download_folder(
+            id="root_id", output=str(tmp_path), quiet=True, use_cookies=False
+        )
+
+    export_path = tmp_path / export_name
+    assert files == [str(export_path)]
+    assert export_path.read_bytes() == b"export"
+    assert not (tmp_path / drive_name).exists()
+
+
+def test_download_folder_keeps_ordinary_drive_filename(*, tmp_path: Path) -> None:
+    root = _make_folder_root(name="folder", child_names=["photo.jpg"])
+    response = build_response(
+        headers={"Content-Disposition": 'attachment; filename="renamed.jpg"'},
+        chunks=[b"photo"],
+    )
+
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch(
+            "requests.sessions.Session.get", return_value=response
+        ) as get,
+    ):
+        files = download_folder(
+            id="root_id", output=str(tmp_path), quiet=True, use_cookies=False
+        )
+
+    photo_path = tmp_path / "photo.jpg"
+    assert files == [str(photo_path)]
+    assert photo_path.read_bytes() == b"photo"
+    assert get.call_count == 1
+
+
+def test_download_folder_lists_and_writes_nested_google_native_file(
+    *, tmp_path: Path
+) -> None:
+    root = _GoogleDriveFile(
+        id="root_id",
+        name="folder",
+        type=_GoogleDriveFile.TYPE_FOLDER,
+        children=[
+            _GoogleDriveFile(
+                id="sub_id",
+                name="sub",
+                type=_GoogleDriveFile.TYPE_FOLDER,
+                children=[
+                    _GoogleDriveFile(
+                        id="native_id",
+                        name="report.v2",
+                        type=_GoogleDriveFile.TYPE_PRESENTATION,
+                    )
+                ],
+            )
+        ],
+    )
+    responses = [
+        build_response(
+            headers={"Content-Disposition": 'attachment; filename="report.v2.pptx"'},
+            chunks=[b"export"],
+        )
+        for _ in range(2)
+    ]
+
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch("requests.sessions.Session.get", side_effect=responses),
+    ):
+        listing = download_folder(
+            id="root_id",
+            output=str(tmp_path),
+            quiet=True,
+            use_cookies=False,
+            skip_download=True,
+        )
+        files = download_folder(
+            id="root_id", output=str(tmp_path), quiet=True, use_cookies=False
+        )
+
+    export_path = tmp_path / "sub" / "report.v2.pptx"
+    listing_file = listing[0]
+    assert not isinstance(listing_file, str)
+    assert listing_file.id == "native_id"
+    assert listing_file.path == osp.join("sub", "report.v2.pptx")
+    assert listing_file.local_path == str(export_path)
+    assert files == [str(export_path)]
+    assert export_path.read_bytes() == b"export"
+
+
+def test_download_folder_reuses_google_native_export_filename(
+    *, tmp_path: Path
+) -> None:
+    root = _make_folder_root(name="folder", child_names=["report.v2"])
+    root.children[0].type = _GoogleDriveFile.TYPE_PRESENTATION
+    response = build_response(
+        headers={"Content-Disposition": 'attachment; filename="report.v2.pptx"'},
+        chunks=[b"export"],
+    )
+
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch("requests.sessions.Session.get", return_value=response),
+    ):
+        first_files = download_folder(
+            id="root_id", output=str(tmp_path), quiet=True, use_cookies=False
+        )
+        repeated_files = download_folder(
+            id="root_id", output=str(tmp_path), quiet=True, use_cookies=False
+        )
+
+    export_path = tmp_path / "report.v2.pptx"
+    assert first_files == repeated_files == [str(export_path)]
+    assert export_path.read_bytes() == b"export"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["report.v2.pptx"]
+
+
+def test_download_folder_resumes_google_native_export_filename(
+    *, tmp_path: Path
+) -> None:
+    root = _make_folder_root(name="folder", child_names=["report.v2"])
+    root.children[0].type = _GoogleDriveFile.TYPE_PRESENTATION
+    truncated_response = build_response(
+        headers={
+            "Content-Disposition": 'attachment; filename="report.v2.pptx"',
+            "Content-Length": "10",
+        },
+        chunks=[b"data"],
+    )
+
+    def get_response(
+        _url: str, *, headers: dict[str, str] | None = None, **_kwargs: object
+    ) -> unittest.mock.Mock:
+        if headers is None:
+            return truncated_response
+        assert headers == {"Range": "bytes=4-"}
+        return build_response(headers={"Content-Length": "6"}, chunks=[b"123456"])
+
+    with (
+        unittest.mock.patch.object(
+            sys.modules["gdown.download_folder"],
+            "_download_and_parse_google_drive_link",
+            return_value=root,
+        ),
+        unittest.mock.patch("requests.sessions.Session.get", side_effect=get_response),
+    ):
+        with pytest.raises(DownloadError, match="Failed to download"):
+            download_folder(
+                id="root_id", output=str(tmp_path), quiet=True, use_cookies=False
+            )
+
+        (part,) = tmp_path.glob("report.v2.pptx*.part")
+        files = download_folder(
+            id="root_id",
+            output=str(tmp_path),
+            quiet=True,
+            use_cookies=False,
+            resume=True,
+        )
+
+    export_path = tmp_path / "report.v2.pptx"
+    assert files == [str(export_path)]
+    assert export_path.read_bytes() == b"data123456"
+    assert not part.exists()
+    assert not (tmp_path / "report.v2").exists()
 
 
 @pytest.mark.network
