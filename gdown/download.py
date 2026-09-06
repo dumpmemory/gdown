@@ -189,6 +189,11 @@ class _CookieExtractionLogger(_YDLLogger):
     def __init__(self) -> None:
         super().__init__()
         self._seen: set[str] = set()
+        self._error_message: str | None = None
+
+    @property
+    def error_message(self) -> str | None:
+        return self._error_message
 
     def warning(
         self, message: str, /, *, once: bool = False, only_once: bool = False
@@ -198,7 +203,9 @@ class _CookieExtractionLogger(_YDLLogger):
         self._seen.add(message)
         print(f"warning: {message}", file=sys.stderr)
 
-    def error(self, message: str, /, *, is_error: bool = True) -> None:  # noqa: ARG002
+    def error(self, message: str, /, *, is_error: bool = True) -> None:
+        if is_error:
+            self._error_message = message
         print(f"error: {message}", file=sys.stderr)
 
 
@@ -207,13 +214,16 @@ def _import_cookies_from_browser(*, browser: str, cookies_file: str) -> int:
     from ._vendor._ytdlp_cookies import CHROMIUM_BASED_BROWSERS  # noqa: PLC0415
     from ._vendor._ytdlp_cookies import extract_cookies_from_browser  # noqa: PLC0415
 
+    logger = _CookieExtractionLogger()
     browser_cookies = [
         cookie
-        for cookie in extract_cookies_from_browser(
-            browser, logger=_CookieExtractionLogger()
-        )
+        for cookie in extract_cookies_from_browser(browser, logger=logger)
         if cookie.domain == "google.com" or cookie.domain.endswith(".google.com")
     ]
+    # Some keyring backends catch exceptions and fall back to an empty password.
+    # A reported error must prevent even apparently decrypted cookies being saved.
+    if logger.error_message is not None:
+        raise DownloadError(logger.error_message)
     if browser in CHROMIUM_BASED_BROWSERS:
         for cookie in browser_cookies:
             # Chromium stores expiry as microseconds since 1601 and the

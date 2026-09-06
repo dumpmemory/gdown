@@ -17,6 +17,7 @@ import pytest
 import requests
 from urllib3.response import HTTPResponse
 
+from gdown._vendor import _ytdlp_cookies
 from gdown._vendor._ytdlp_cookies import extract_cookies_from_browser
 from gdown.download import CHUNK_SIZE
 from gdown.download import GoogleDriveFileToDownload
@@ -590,6 +591,65 @@ def test_cookie_extraction_logger_prints_once_flagged_warning_once(
         logger.warning("cannot decrypt v10 cookies", only_once=True)
 
     assert capsys.readouterr().err == "warning: cannot decrypt v10 cookies\n"
+
+
+def test_import_cookies_preserves_saved_session_when_keyring_fails(
+    *, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    browser_dir = tmp_path / "google-chrome"
+    browser_dir.mkdir()
+    with contextlib.closing(sqlite3.connect(browser_dir / "Cookies")) as connection:
+        connection.executescript("""
+            CREATE TABLE meta (key TEXT, value TEXT);
+            INSERT INTO meta VALUES ('version', '24');
+            CREATE TABLE cookies (
+                host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB,
+                path TEXT, expires_utc INTEGER, is_secure INTEGER
+            );
+        """)
+        # Chromium v11 AES-CBC, password "fake-test-password", with the
+        # SHA-256 domain prefix and value "synthetic-session-0". With the
+        # empty fallback key, upstream incorrectly decrypts this to "".
+        encrypted = bytes.fromhex(
+            "7631317d9727dcf42640993c7a4cb5470827b2505447ffb2a13eda65c440ce0b1e7ec"
+            "6576f2642dc4b97fa9af8b8b08d029110b48cec0cd9cc55496bce5b94a62da87e"
+        )
+        connection.execute(
+            "INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (".google.com", "SID", "", encrypted, "/", 15746918400000000, 1),
+        )
+        connection.commit()
+
+    cookies_file = tmp_path / "cookies.txt"
+    _save_cookies(
+        cookies=[build_google_cookie(name="SID", value="existing-good-session")],
+        cookies_file=str(cookies_file),
+    )
+    original = cookies_file.read_bytes()
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
+    monkeypatch.setattr(_ytdlp_cookies, "secretstorage", None)
+
+    with pytest.raises(DownloadError, match="secretstorage not available"):
+        _import_cookies_from_browser(browser="chrome", cookies_file=str(cookies_file))
+
+    assert cookies_file.read_bytes() == original
+
+    with unittest.mock.patch.object(
+        _ytdlp_cookies,
+        "_get_gnome_keyring_password",
+        return_value=b"fake-test-password",
+    ):
+        assert (
+            _import_cookies_from_browser(
+                browser="chrome", cookies_file=str(cookies_file)
+            )
+            == 1
+        )
+    assert [
+        (c.name, c.value) for c in _load_cookies(cookies_file=str(cookies_file))
+    ] == [("SID", "synthetic-session-0")]
 
 
 def test_import_cookies_from_browser_converts_chromium_expiry(
