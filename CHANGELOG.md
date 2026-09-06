@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## 6.2.0 - 2026-09-06
+
+### Added
+
+- Add `--cookies-from-browser BROWSER` to download as your signed-in Google account using cookies read straight from a local browser, and `--cookies FILE` to use a cookies file other than `~/.cache/gdown/cookies.txt`. The cookies file is now written owner-only and keeps session cookies. ([#494](https://github.com/wkentaro/gdown/pull/494))
+
+### Changed
+
+- Continue downloading the remaining files in a folder after individual downloads fail, then report all failures together. ([#495](https://github.com/wkentaro/gdown/pull/495))
+- Automatically detect Google Drive folder URLs, making `--folder` necessary only for ambiguous bare IDs. ([#496](https://github.com/wkentaro/gdown/pull/496))
+
+### Fixed
+
+- Close download sessions and streamed responses on early exits, failures, and response replacement, including single-file Listing and resumed downloads. ([#499](https://github.com/wkentaro/gdown/pull/499))
+- Remove cached-download staging directories after success or interruption, and create the cache on demand instead of during import. ([#500](https://github.com/wkentaro/gdown/pull/500))
+- Honor an explicitly supplied user agent for file downloads within folders while retaining the existing default user agents. ([#501](https://github.com/wkentaro/gdown/pull/501))
+- Fix folder `--json` export paths and preserve export extensions for dotted Google-native filenames. ([#503](https://github.com/wkentaro/gdown/pull/503))
+- Preserve the saved cookies file when browser cookie extraction reports an error instead of replacing working session cookies with invalid decrypted values. ([#504](https://github.com/wkentaro/gdown/pull/504))
+
 ## 6.1.1 - 2026-09-04
 
 ### Fixed
