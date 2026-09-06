@@ -23,7 +23,7 @@ except ImportError:  # Python built without sqlite support
 
 def _probe_secretstorage() -> tuple[Any, str | None]:
     try:
-        import secretstorage  # noqa: PLC0415
+        import secretstorage  # noqa: PLC0415  # ty: ignore[unresolved-import]
     except ImportError:
         return None, (
             "as the `secretstorage` module is not installed. "
