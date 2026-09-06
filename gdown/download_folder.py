@@ -139,14 +139,12 @@ def download_folder(
         folder_id = _extract_folder_id(url=url)
     else:
         folder_id = id
-    if user_agent is None:
-        # We need to use different user agent for folder download c.f., file
-        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36"  # NOQA: E501
-
+    FOLDER_USER_AGENT: Final = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36"  # NOQA: E501
     sess, _ = _get_session(
         proxy=proxy,
         use_cookies=use_cookies,
-        user_agent=user_agent,
+        # Folder listing needs a different default agent than file download.
+        user_agent=FOLDER_USER_AGENT if user_agent is None else user_agent,
         cookies_file=cookies_file,
     )
     try:
@@ -214,6 +212,7 @@ def download_folder(
                     verify=verify,
                     resume=resume,
                     cookies_file=cookies_file,
+                    user_agent=user_agent,
                 )
             except DownloadError as e:
                 failed_paths.append(local_path)
