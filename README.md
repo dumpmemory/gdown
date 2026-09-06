@@ -227,6 +227,10 @@ that browser.
 
 Platform notes:
 
+- Linux Chromium-family browsers using GNOME Keyring require `secretstorage`
+  in gdown's Python environment. Install with `pip install 'gdown[secretstorage]'`
+  or run `uvx --from 'gdown[secretstorage]' gdown --cookies-from-browser chrome URL`.
+  Firefox needs no extra dependency.
 - macOS asks for your login password once to unlock the Chromium-family
   keychain entry; Firefox needs nothing.
 - Windows Chrome 127+ encrypts cookies so other programs cannot read them.

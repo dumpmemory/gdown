@@ -58,10 +58,16 @@ runs need no flag. Both flags follow the yt-dlp names. Session cookies are
 kept when saving and loading the file, because Google's sign-in state partly
 lives in them.
 
+Expose GNOME Keyring's Python dependency through `gdown[secretstorage]`,
+following yt-dlp's optional-extra convention. This keeps Firefox extraction
+available without an extra while giving GNOME users an explicit installation
+route.
+
 ## Consequences
 
 - `uvx gdown --cookies-from-browser firefox URL` works with no extra and no
   new runtime dependency.
+- GNOME Keyring users install `gdown[secretstorage]`.
 - About 1,600 generated lines live in the repository and are excluded from
   lint and type checks. They change only when the script is rerun.
 - When upstream renames one of its internals, the script's shim-name report

@@ -27,7 +27,8 @@ def _probe_secretstorage() -> tuple[Any, str | None]:
     except ImportError:
         return None, (
             "as the `secretstorage` module is not installed. "
-            "Please install by running `python3 -m pip install secretstorage`"
+            "Install with `pip install 'gdown[secretstorage]'` or run "
+            "`uvx --from 'gdown[secretstorage]' gdown`"
         )
     except Exception as err:  # noqa: BLE001
         return None, f"as the `secretstorage` module could not be initialized. {err}"

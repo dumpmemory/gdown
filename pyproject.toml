@@ -33,6 +33,9 @@ dependencies = [
 ]
 dynamic = ["readme", "version"]
 
+[project.optional-dependencies]
+secretstorage = ["secretstorage"]
+
 [project.scripts]
 gdown = "gdown.__main__:main"
 
