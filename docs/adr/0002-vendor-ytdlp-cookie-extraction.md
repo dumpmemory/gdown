@@ -16,8 +16,7 @@ without cookies and downloaded with a signed-in browser's Google cookies.
 gdown could already use cookies, but only from a Netscape file the user
 exported with a browser extension and moved into the cache directory. The
 convention set by yt-dlp and copied by gallery-dl is `--cookies FILE` plus
-`--cookies-from-browser BROWSER`, and Firefox extraction through `uvx gdown`
-must work with no extra.
+`--cookies-from-browser BROWSER`, and `uvx gdown` must work with no extra.
 
 Reading a browser's cookie store means SQLite, per-platform key retrieval,
 and AES decryption. Browser extraction is the one CLI-only feature in gdown,
@@ -31,12 +30,11 @@ is hard to justify. The options:
 - Depend on yt-dlp. Rejected: a 3 MB dependency for one function.
 - Copy the code from gallery-dl. Rejected: GPL-2.
 - Vendor from yt-dlp. Its `cookies.py` and pure-Python `aes.py` are
-  released under the Unlicense (public domain) and are actively maintained.
-  They use system tools (`security` on macOS, `dbus-send` and `kwallet`
-  on Linux, DPAPI via ctypes on Windows); GNOME Keyring additionally requires
-  the optional `secretstorage` Python package.
-- Put a third-party browser extraction library behind an optional extra.
-  Rejected: `uvx gdown` would then require an extra even for Firefox.
+  released under the Unlicense (public domain), need only the standard
+  library plus system tools (`security` on macOS, `dbus-send` and `kwallet`
+  on Linux, DPAPI via ctypes on Windows), and are actively maintained.
+- Ship it as an optional extra. Rejected: extras only add dependencies, so a
+  slim `gdown[core]` cannot be expressed, and `uvx gdown` would not have it.
 
 No option reads Chrome 127+ cookies on Windows without admin rights, because
 of Google's App-Bound Encryption. Firefox works everywhere.
@@ -69,6 +67,7 @@ route.
 
 - `uvx gdown --cookies-from-browser firefox URL` works with no extra and no
   new runtime dependency.
+- GNOME Keyring users install `gdown[secretstorage]`.
 - About 1,600 generated lines live in the repository and are excluded from
   lint and type checks. They change only when the script is rerun.
 - When upstream renames one of its internals, the script's shim-name report
