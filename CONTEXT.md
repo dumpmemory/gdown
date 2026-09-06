@@ -5,15 +5,19 @@ Command-line tool and Python library for downloading files and folders from Goog
 ## Language
 
 **Drive filename**:
-The true name Google Drive holds for a file, carrying its real extension. For a single file it is read from the `Content-Disposition` response header; for a folder it is read from the embedded folder-view HTML. Distinct from the URL basename, which for a Drive download URL is meaningless (e.g. `uc`, `open`).
+The true name Google Drive holds for a file, carrying its real extension. For a single file it is read from the `Content-Disposition` response header; for an ordinary file in a folder it is read from the embedded folder-view HTML. For a Google-native file it is the export filename from the `Content-Disposition` header, since the folder view shows only the extensionless Drive name. Distinct from the URL basename, which for a Drive download URL is meaningless (e.g. `uc`, `open`).
 _Avoid_: output name, basename
+
+**Google-native file**:
+A Google Docs, Sheets, or Slides entry. Drive holds it in its own format, so downloading means exporting to a chosen format (`.docx`, `.xlsx`, `.pptx` by default) and the written filename always carries the export extension the Drive name lacks. Recognized in a folder by its `docs.google.com` link, never by whether the Drive name contains a dot. Everything else in a folder is an ordinary file: stored bytes whose Drive name is already the written filename.
+_Avoid_: document, export (as a noun for the file), extensionless file
 
 **Listing**:
 The `--json` output: a JSON array of `{url, path}` entries describing what would be downloaded, emitted instead of downloading. A dry run that resolves names without fetching file bodies. Works for both a single file and a folder; takes no output destination (combining with `-O`/`--output`, including `-O -`, is a hard error).
 _Avoid_: manifest, index, dump
 
 **path** (in a Listing entry):
-The location a file would be written to, relative to the download root. For a folder, includes the directory structure. For a single file, it is the bare Drive filename. Always a real Drive filename; never a URL-basename fallback.
+The location a file would be written to, relative to the download root. For a folder, includes the directory structure. For a single file, it is the bare Drive filename. Always a real Drive filename; never a URL-basename fallback. A folder Listing resolves the export filename of each Google-native file with one request per such file; ordinary files are never probed. If any probe fails, the whole Listing fails.
 
 **Cookies file**:
 The one Netscape-format file gdown reads when it opens a session and rewrites while resolving each Google Drive file, even under `--json`, `~/.cache/gdown/cookies.txt` unless `--cookies` names another. `--cookies-from-browser` copies a browser's Google cookies into it, after which it holds a signed-in session and is written owner-only.
@@ -28,3 +32,5 @@ The probe result returned by both downloaders under `skip_download=True`: `(id, 
 > **Maintainer:** The Drive filename. Same guarantee as a folder entry: a real name with its real extension, never `uc`.
 > **Dev:** And if there's no `Content-Disposition`, like a non-Drive URL?
 > **Maintainer:** Then there's no Drive filename to report. We error out rather than emit a bad name. The Listing only ever contains real names.
+> **Dev:** A folder holds a Slides deck named `report.v2`. What's its `path`?
+> **Maintainer:** `report.v2.pptx`, under its subdirectory. Listing `path` is what gets written, so a Google-native file costs one probe request to learn its export name. The `.jpg` next to it is written under its listed name and never probed.
